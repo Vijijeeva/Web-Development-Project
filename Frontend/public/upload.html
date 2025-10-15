@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📊 Excel Analysis platform</title>
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background:rgb(173, 186, 230);
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 100%;
+      margin: 50px auto;
+      text-align: center;
+      color: darkslateblue;
+      padding: 50px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      position: relative;
+    }
+
+    button {
+      background: darkgreen;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      padding: 8px 15px;
+    }
+
+    select, input[type="file"], button {
+      margin: 10px;
+      padding: 8px;
+      font-size: 14px;
+    }
+
+    .chart-container {
+      margin-left: 250px;
+      margin-top: 40px;
+      width: 800px;
+      position: relative;
+    }
+
+    .download-buttons {
+      position: absolute;
+      bottom: -50px;
+      right: 0;
+      display: flex;
+      gap: 10px;
+    }
+
+    .download-buttons button {
+      background: #0b3d91;
+      border: none;
+      color: white;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      padding: 8px 14px;
+      transition: 0.3s;
+    }
+
+    .download-buttons button:hover {
+      background: darkgreen;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 style="color:darkgreen">Upload Excel File</h1><br>
+    <p><b>"You can upload an Excel file containing your data using the file upload option. Once uploaded, the system reads the file, extracts the rows and columns, and stores the data securely in the database, allowing you to visualize, analyze, and manage it efficiently."</b></p>
+    <input type="file" id="fileInput" />
+    <button onclick="uploadFile()">Upload</button>
+    <p id="message"></p>
+    <p id="rowsInfo"></p><br><br><br>
+
+    <h1 style="color:darkblue"> 📊 DYNAMIC CHARTS</h1> </h1><br>
+    <p><b>"After uploading your Excel data, you can create various interactive charts using the stored information. Choose the X-axis and Y-axis columns, select the chart type, and generate dynamic visualizations like 📈line, 📊bar, 🔵bubble,  ✴️scatter, 🥧pie, 📦whisker or  🏔️3D charts to analyze your data effectively."</b></p><br>
+    <label for="xSelect">X-axis:</label>
+    <select id="xSelect"></select>
+
+    <label for="ySelect">Y-axis :</label>
+    <select id="ySelect" multiple size="5"></select>
+
+    <label for="chartType">Chart Type:</label>
+    <select id="chartType">
+      <option value="scatter">Scatter plot</option>
+      <option value="line">Line chart</option>
+      <option value="bar">Bar chart</option>
+      <option value="bubble">Bubble chart</option>
+      <option value="pie">Pie chart</option>
+      <option value="whisker">Whisker chart</option>
+      <option value="surface">3D Surface chart</option>
+      <option value="scatter3d">3D Scatter chart</option> 
+    </select>
+
+    <button onclick="drawChart()">Draw Chart</button>
+
+    <div class="chart-container" id="chart"></div>
+
+    <!-- Download buttons -->
+    <div class="download-buttons">
+      <button onclick="downloadPNG()">⬇️Download PNG</button>
+      <button onclick="downloadPDF()">📄Download PDF</button>
+      <button onclick="downloadExcel()">📘Download Excel</button>
+    </div>
+  </div>
+
+  <script>
+    let excelData = [];
+    let columns = [];
+
+    const fileInput = document.getElementById("fileInput");
+    const message = document.getElementById("message");
+    const rowsInfo = document.getElementById("rowsInfo");
+    const xSelect = document.getElementById("xSelect");
+    const ySelect = document.getElementById("ySelect");
+    const chartTypeSelect = document.getElementById("chartType");
+    const chartDiv = document.getElementById("chart");
+
+    fileInput.addEventListener("change", handleFileRead);
+
+    function handleFileRead() {
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.SheetNames[0];
+        excelData = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet]);
+
+        // Remove rows with all null values
+        excelData = excelData.filter(row => !Object.values(row).every(val => val === null));
+
+        // Get columns
+        columns = Object.keys(excelData[0]);
+
+        // Populate dropdowns
+        xSelect.innerHTML = "";
+        ySelect.innerHTML = "";
+        columns.forEach(col => {
+          const optionX = document.createElement("option");
+          optionX.value = col;
+          optionX.text = col;
+          xSelect.appendChild(optionX);
+
+          const optionY = document.createElement("option");
+          optionY.value = col;
+          optionY.text = col;
+          ySelect.appendChild(optionY);
+        });
+
+        message.innerText = `✅ Loaded ${excelData.length} rows from Excel`;
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    async function uploadFile() {
+      if (!fileInput.files.length) {
+        message.innerText = "❌ Please select a file first";
+        return;
+      }
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      try {
+        const res = await fetch("http://localhost:5000/api/upload/excel", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (res.ok) {
+          message.innerText = data.message || "✅ File uploaded successfully";
+          rowsInfo.innerText = `✅ ${data.rows || 0} rows inserted into database`;
+        } else {
+          message.innerText = data.message || "❌ Upload failed";
+        }
+      } catch (err) {
+        console.error(err);
+        message.innerText = "❌ Error while uploading file";
+      }
+    }
+
+    function drawChart() {
+      const xCol = xSelect.value;
+      const yCols = Array.from(ySelect.selectedOptions).map(opt => opt.value);
+      const chartType = chartTypeSelect.value;
+
+      if (!xCol || yCols.length === 0) {
+        alert("Please select X-axis and at least one Y-axis");
+        return;
+      }
+
+      if (chartType === "surface") {
+        const zData = excelData.map(row => yCols.map(col => {
+          const val = row[col];
+          return typeof val === "number" ? val : 0;
+        }));
+        Plotly.newPlot(chartDiv, [{
+          type: 'surface',
+          z: zData,
+        }], {title: '3D Surface Plot'}, {responsive:true});
+        return;
+      }
+
+      if (chartType === "scatter3d") {
+        if (yCols.length < 2) {
+          alert("Select at least 2 Y-axis columns for 3D Scatter (X,Y,Z)");
+          return;
+        }
+        const xData = excelData.map(r => r[xCol]);
+        const yData = excelData.map(r => r[yCols[0]]);
+        const zData = excelData.map(r => r[yCols[1]]);
+
+        Plotly.newPlot(chartDiv, [{
+          x:xData, y:yData, z:zData,
+          mode:'markers',
+          type:'scatter3d',
+          marker:{size:5, color:zData}
+        }], {title:'3D Scatter Plot'}, {responsive:true});
+        return;
+      }
+
+      if (chartType === "pie") {
+        const labels = excelData.map(r => r[xCol]);
+        const values = excelData.map(r => r[yCols[0]]);
+        Plotly.newPlot(chartDiv, [{
+          labels: labels,
+          values: values,
+          type: 'pie',
+          textinfo: "label+percent",
+          insidetextorientation: "radial"
+        }], {title: `Pie Chart: ${yCols[0]} by ${xCol}`}, {responsive:true});
+        return;
+      }
+
+      if (chartType === "whisker") {
+        const traces = yCols.map(yCol => {
+          const yData = excelData.map(r => r[yCol]);
+          return {
+            y: yData,
+            type: 'box',
+            name: yCol,
+            boxpoints: 'all',
+            jitter: 0.4,
+            whiskerwidth: 0.2,
+            marker: { size: 6 },
+            line: { width: 1 }
+          };
+        });
+        Plotly.newPlot(chartDiv, traces, {title:"Whisker Chart"}, {responsive:true});
+        return;
+      }
+
+      // 2D charts
+      const traces = yCols.map(yCol => {
+        const xData = excelData.map(r => r[xCol]);
+        const yData = excelData.map(r => r[yCol]);
+        switch(chartType) {
+          case "scatter":
+            return { x:xData, y:yData, type:'scatter', mode:'markers+lines', name:yCol, marker:{color:'orange'} };
+          case "line":
+            return { x:xData, y:yData, mode:'lines', name:yCol, line:{width:2} };
+          case "bar":
+            return { x:xData, y:yData, type:'bar', name:yCol };
+          case "bubble":
+            return {
+              x:xData, y:yData, mode:'markers',
+              name:yCol,
+              marker:{ size:yData.map(v => (typeof v==='number'?v:0)*5), color:xData.map(v => (typeof v==='number'?v:0)), sizemode:'area' }
+            };
+          default:
+            return { x:xData, y:yData, type:'scatter', mode:'markers', name:yCol };
+        }
+      });
+
+      const layout = {
+        title: `${chartType.toUpperCase()} Chart: ${yCols.join(', ')} vs ${xCol}`,
+        xaxis:{title:xCol},
+        yaxis:{title:yCols.join(', ')},
+        barmode: chartType==="bar" ? 'group' : undefined
+      };
+
+      Plotly.newPlot(chartDiv, traces, layout, {responsive:true});
+    }
+
+    // --- DOWNLOAD AS PNG ---
+    function downloadPNG() {
+      Plotly.downloadImage(chartDiv, {
+        format: 'png',
+        filename: 'chart_download',
+        height: 600,
+        width: 900
+      });
+    }
+
+    // --- DOWNLOAD AS PDF ---
+    async function downloadPDF() {
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+
+      const imgData = await Plotly.toImage(chartDiv, { format: 'png', width: 900, height: 600 });
+      pdf.addImage(imgData, 'PNG', 40, 40, 720, 480);
+      pdf.save('chart_report.pdf');
+    }
+
+    // --- DOWNLOAD EXCEL DATA ---
+    function downloadExcel() {
+      if (!excelData.length) {
+        alert("Please upload and draw chart before downloading Excel data.");
+        return;
+      }
+      const ws = XLSX.utils.json_to_sheet(excelData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Data");
+      XLSX.writeFile(wb, "Excel_Analysis_Data.xlsx");
+    }
+  </script>
+</body>
+</html>
